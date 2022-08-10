@@ -1,15 +1,22 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor, Json
-from datetime import datetime, timedelta
-from pycardano import Address, Network
-from time import time, sleep
-import bidict as bd
+from __future__ import annotations
+
 import logging.config
+from datetime import datetime
+from datetime import timedelta
+from time import sleep
+from time import time
+
+import bidict as bd
+import psycopg2
 import yaml
+from psycopg2.extras import Json
+from psycopg2.extras import RealDictCursor
+from pycardano import Address
+from pycardano import Network
 
 
 def read_yaml(filepath):
-    with open(filepath, "r") as yaml_file:
+    with open(filepath) as yaml_file:
         try:
             yaml_data = yaml.safe_load(yaml_file)
             return yaml_data
@@ -27,8 +34,10 @@ def get_staking_address(address):
         if address_obj.staking_part is None:
             return None
         else:
-            return Address(staking_part=address_obj.staking_part,
-                           network=Network.MAINNET).encode()
+            return Address(
+                staking_part=address_obj.staking_part,
+                network=Network.MAINNET,
+            ).encode()
     else:
         return None
 
@@ -38,16 +47,28 @@ class Db:
         self.config = config
 
         # Connect to Cardano and Pantasia postgres DB
-        self.cardano_conn = psycopg2.connect(dbname=config['cardano']['dbname'], user=config['cardano']['user'],
-                                             password=config['cardano']['password'], host=config['cardano']['host'],
-                                             port=config['cardano']['port'])
-        self.pantasia_conn = psycopg2.connect(dbname=config['pantasia']['dbname'], user=config['pantasia']['user'],
-                                              password=config['pantasia']['password'], host=config['pantasia']['host'],
-                                              port=config['pantasia']['port'])
+        self.cardano_conn = psycopg2.connect(
+            dbname=config['cardano']['dbname'],
+            user=config['cardano']['user'],
+            password=config['cardano']['password'],
+            host=config['cardano']['host'],
+            port=config['cardano']['port'],
+        )
+        self.pantasia_conn = psycopg2.connect(
+            dbname=config['pantasia']['dbname'],
+            user=config['pantasia']['user'],
+            password=config['pantasia']['password'],
+            host=config['pantasia']['host'],
+            port=config['pantasia']['port'],
+        )
 
         # Open cursors to perform database operations
-        self.cardano_cur = self.cardano_conn.cursor(cursor_factory=RealDictCursor)
-        self.pantasia_cur = self.pantasia_conn.cursor(cursor_factory=RealDictCursor)
+        self.cardano_cur = self.cardano_conn.cursor(
+            cursor_factory=RealDictCursor,
+        )
+        self.pantasia_cur = self.pantasia_conn.cursor(
+            cursor_factory=RealDictCursor,
+        )
 
         # Get Cardano DB tip in datetime
         self.cardano_tip = self.get_latest_cardano_tip()
@@ -69,9 +90,16 @@ class Db:
             values = kwargs.get('values')
 
             if values is not None:
-                logger.debug("""{execute} running time is {sec} seconds for inserting {rows} rows."""
-                             .format(execute=func.__name__, sec=round(time_elapsed - time_started, 4),
-                                     rows=len(values)))
+                logger.debug(
+                    '{execute} running time is {s} seconds for inserting {rows} rows.'
+                    .format(
+                        execute=func.__name__,
+                        s=round(
+                            time_elapsed - time_started, 4,
+                        ),
+                        rows=len(values),
+                    ),
+                )
 
         return time_it
 
@@ -89,7 +117,7 @@ class Db:
                 alias varchar (16) UNIQUE NOT NULL,
                 created_on timestamp NOT NULL,
                 modified timestamp NOT NULL,
-                last_login timestamp 
+                last_login timestamp
                 );
 
                 CREATE TABLE IF NOT EXISTS wallet (
@@ -145,51 +173,89 @@ class Db:
         self.pantasia_cur.execute(query)
         self.pantasia_conn.commit()
 
-    def pantasia_add_foreign_key(self, table_name, foreign_key, reference_table_name, reference_key):
-        constraint_name = f"fk_{table_name}_{foreign_key}_{reference_table_name}"
+    def pantasia_add_foreign_key(
+            self,
+            table_name,
+            foreign_key,
+            reference_table_name,
+            reference_key,
+    ):
+        constraint_name = f'fk_{table_name}' \
+                          f'_{foreign_key}' \
+                          f'_{reference_table_name}'
         query = f"""
                     DO $$
                 BEGIN
 
                   BEGIN
-                    ALTER TABLE public."%s" ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES "%s"(%s);
+                    ALTER TABLE public."%s"
+                    ADD CONSTRAINT %s
+                    FOREIGN KEY (%s)
+                    REFERENCES "%s"(%s);
                   EXCEPTION
-                    WHEN duplicate_object THEN RAISE NOTICE 'Table constraint {constraint_name} already exists';
+                    WHEN duplicate_object
+                    THEN RAISE NOTICE
+                    'Table constraint {constraint_name} already exists';
                   END;
 
                 END $$;
-                """ % (table_name, constraint_name, foreign_key, reference_table_name, reference_key)
+                """ % (
+            table_name,
+            constraint_name,
+            foreign_key,
+            reference_table_name,
+            reference_key,
+        )
         self.pantasia_cur.execute(query)
 
-    def pantasia_remove_foreign_key(self, table_name, foreign_key, reference_table_name):
-        constraint_name = f"fk_{table_name}_{foreign_key}_{reference_table_name}"
-        query = f"""
+    def pantasia_remove_foreign_key(
+            self,
+            table_name,
+            foreign_key,
+            reference_table_name,
+    ):
+        constraint_name = f'fk_{table_name}' \
+                          f'_{foreign_key}' \
+                          f'_{reference_table_name}'
+        query = """
                     DO $$
                 BEGIN
 
                   BEGIN
-                    ALTER TABLE %s DROP CONSTRAINT %s;
+                    ALTER TABLE {} DROP CONSTRAINT {};
                   END;
 
                 END $$;
-                """ % (table_name, constraint_name)
+                """.format(table_name, constraint_name)
         self.pantasia_cur.execute(query)
 
     def pantasia_create_fk(self):
         # Create Foreign Keys
-        self.pantasia_add_foreign_key("asset", "collection_id", "collection", "id")
-        self.pantasia_add_foreign_key("asset", "current_wallet_id", "wallet", "id")
+        self.pantasia_add_foreign_key(
+            'asset', 'collection_id', 'collection', 'id',
+        )
+        self.pantasia_add_foreign_key(
+            'asset', 'current_wallet_id', 'wallet', 'id',
+        )
 
-        self.pantasia_add_foreign_key("asset_mint_tx", "asset_id", "asset", "id")
-        self.pantasia_add_foreign_key("asset_mint_tx", "wallet_id", "wallet", "id")
+        self.pantasia_add_foreign_key(
+            'asset_mint_tx', 'asset_id', 'asset', 'id',
+        )
+        self.pantasia_add_foreign_key(
+            'asset_mint_tx', 'wallet_id', 'wallet', 'id',
+        )
 
-        self.pantasia_add_foreign_key("asset_tx", "asset_id", "asset", "id")
-        self.pantasia_add_foreign_key("asset_tx", "wallet_id", "wallet", "id")
+        self.pantasia_add_foreign_key('asset_tx', 'asset_id', 'asset', 'id')
+        self.pantasia_add_foreign_key('asset_tx', 'wallet_id', 'wallet', 'id')
 
-        self.pantasia_add_foreign_key("asset_ext", "latest_mint_tx_id", "asset_mint_tx", "id")
-        self.pantasia_add_foreign_key("asset_ext", "latest_tx_id", "asset_tx", "id")
+        self.pantasia_add_foreign_key(
+            'asset_ext', 'latest_mint_tx_id', 'asset_mint_tx', 'id',
+        )
+        self.pantasia_add_foreign_key(
+            'asset_ext', 'latest_tx_id', 'asset_tx', 'id',
+        )
 
-        self.pantasia_add_foreign_key("wallet", "user_id", "user", "id")
+        self.pantasia_add_foreign_key('wallet', 'user_id', 'user', 'id')
         self.pantasia_conn.commit()
 
     def pantasia_create(self):
@@ -198,7 +264,9 @@ class Db:
         self.pantasia_create_fk()
 
     def pantasia_get_last_index(self, table_name):
-        self.pantasia_cur.execute(f"SELECT id FROM {table_name} ORDER BY id DESC LIMIT 1")
+        self.pantasia_cur.execute(
+            f'SELECT id FROM {table_name} ORDER BY id DESC LIMIT 1',
+        )
         result = self.pantasia_cur.fetchone()
         if result is None:
             return 1
@@ -209,29 +277,35 @@ class Db:
         # Load a bidirectional map of primary key to/from natural key
         bd_result = bd.bidict()
 
-        logger.info(f"Loading {table_name} data......")
+        logger.info(f'Loading {table_name} data......')
 
         self.pantasia_cur.execute(
-            f"SELECT id, {natural_key} FROM {table_name} ORDER BY id ASC")
+            f'SELECT id, {natural_key} FROM {table_name} ORDER BY id ASC',
+        )
         results = self.pantasia_cur.fetchall()
 
         for result in results:
             bd_result.put(result['id'], result[natural_key], bd.ON_DUP_RAISE)
 
         logger.info(
-            f"Load {table_name} data, reference natural key: {natural_key}, {len(results)} items found and loaded")
+            f'Load {table_name} data, '
+            f'reference natural key: {natural_key}, '
+            f'{len(results)} items found and loaded',
+        )
         return bd_result
 
     def pantasia_load_asset_ext_asset_id(self):
-        # Load dictionary to map asset id to existence of corresponding asset_ext record
+        # Load dictionary to map asset id to existence of
+        # corresponding asset_ext record
         d_result = {}
 
-        logger.info(f"Loading asset_ext data...... ")
+        logger.info('Loading asset_ext data...... ')
 
         self.pantasia_cur.execute(
-            f"""SELECT a.id, ae.asset_id FROM asset a 
-                LEFT JOIN asset_ext ae ON a.id = ae.asset_id 
-                ORDER BY id ASC""")
+            """SELECT a.id, ae.asset_id FROM asset a
+                LEFT JOIN asset_ext ae ON a.id = ae.asset_id
+                ORDER BY id ASC""",
+        )
         results = self.pantasia_cur.fetchall()
 
         for result in results:
@@ -241,7 +315,9 @@ class Db:
                 d_result[result['id']] = False
 
         logger.info(
-            f"Loading asset_ext data, reference natural key: asset_id, {len(results)} items found and loaded")
+            f'Loading asset_ext data, '
+            f'reference natural key: asset_id, {len(results)} items found and loaded',
+        )
         return d_result
 
     def get_latest_cardano_tip(self):
@@ -251,9 +327,11 @@ class Db:
             ORDER BY b.time DESC
             LIMIT 1""")
 
-        # cardano_tip delayed 2 minutes as a buffer to allow cardano_db_sync to complete insertions
-        cardano_tip = self.cardano_cur.fetchone()["cardano_tip"] - timedelta(minutes=2)
-        logger.info(f"Cardano DB Tip is at {cardano_tip}")
+        # cardano_tip delayed 2 minutes as a buffer
+        # to allow cardano_db_sync to complete insertions
+        cardano_tip = self.cardano_cur.fetchone(
+        )['cardano_tip'] - timedelta(minutes=2)
+        logger.info(f'Cardano DB Tip is at {cardano_tip}')
 
         self.cardano_tip = cardano_tip
         return cardano_tip
@@ -280,23 +358,26 @@ class Db:
         pantasia_tip = self.pantasia_cur.fetchone()
 
         if pantasia_tip is not None:
-            pantasia_tip = pantasia_tip["pantasia_tip"]
+            pantasia_tip = pantasia_tip['pantasia_tip']
         else:
             # Genesis - First block containing native assets
-            logger.info("pantasia_tip not found, starting from Genesis")
+            logger.info('pantasia_tip not found, starting from Genesis')
             pantasia_tip = datetime.fromisoformat('2021-03-01 21:47:37.000')
 
-        logger.info(f"Pantasia DB Tip is at {pantasia_tip}")
+        logger.info(f'Pantasia DB Tip is at {pantasia_tip}')
         self.pantasia_tip = pantasia_tip
         return pantasia_tip
 
     def pantasia_rollback(self):
-        # Prevent duplicates by deleting entries in asset_mint_tx and asset_tx from pantasia_tip to pantasia_tip + time_interval
-        logger.info("Rolling back to prevent duplicates...")
-        time_interval = timedelta(hours=self.config["time_interval"])
+        # Prevent duplicates by deleting entries in asset_mint_tx
+        # and asset_tx from pantasia_tip to pantasia_tip + time_interval
+        logger.info('Rolling back to prevent duplicates...')
+        time_interval = timedelta(hours=self.config['time_interval'])
 
         logger.info(
-            f"""Deleting from asset_tx and asset_mint_tx from {self.pantasia_tip} to {self.pantasia_tip + time_interval}""")
+            f'Deleting from asset_tx and asset_mint_tx from {self.pantasia_tip} '
+            f'to {self.pantasia_tip + time_interval}',
+        )
 
         self.pantasia_cur.execute(
             f"""WITH select_asset_ids AS (
@@ -312,25 +393,29 @@ class Db:
                 WHERE ae.asset_id IN
                 (
                 SELECT asset_id FROM select_asset_ids sai
-                )"""
+                )""",
         )
         self.pantasia_cur.execute(
-            f"""DELETE FROM asset_tx at2 WHERE at2.tx_time >= TIMESTAMP '{self.pantasia_tip}' 
-            AND at2.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'""")
+            f"""DELETE FROM asset_tx at2 WHERE at2.tx_time >= TIMESTAMP '{self.pantasia_tip}'
+            AND at2.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'""",
+        )
 
         self.pantasia_cur.execute(
-            f"""DELETE FROM asset_mint_tx atm WHERE atm.tx_time >= TIMESTAMP '{self.pantasia_tip}' 
-            AND atm.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'""")
+            f"""DELETE FROM asset_mint_tx atm WHERE atm.tx_time >= TIMESTAMP '{self.pantasia_tip}'
+            AND atm.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'""",
+        )
         self.pantasia_conn.commit()
 
         logger.info(
-            f"""Delete from asset_tx, asset_mint_tx and asset_ext from {self.pantasia_tip} to {self.pantasia_tip + time_interval} complete""")
+            'Delete from asset_tx, asset_mint_tx and asset_ext '
+            f'from {self.pantasia_tip} to {self.pantasia_tip + time_interval} complete',
+        )
 
     def create_period_list(self, period_list):
         new_tip = self.pantasia_tip
 
         while new_tip < self.cardano_tip:
-            new_tip = new_tip + timedelta(hours=self.config["time_interval"])
+            new_tip = new_tip + timedelta(hours=self.config['time_interval'])
 
             if new_tip > self.cardano_tip:
                 new_tip = self.cardano_tip
@@ -402,78 +487,111 @@ class Db:
                 JOIN block b3 ON t3.block_id = b3.id
                 ORDER BY b3.time asc
                 """
-        values = (from_datetime, target_datetime, from_datetime, target_datetime)
+        values = (
+            from_datetime, target_datetime,
+            from_datetime, target_datetime,
+        )
         self.cardano_cur.execute(query, values)
         return self.cardano_cur.fetchall()
 
     @measure_time
     def pantasia_insert_wallet(self, values):
-        argument_string = ",".join("(%s, '%s', '%s')" % (a, b, c) for (a, b, c) in values)
-        query_str = """INSERT INTO wallet (id, address, address_type) VALUES""" + argument_string
+        argument_string = ','.join(
+            f"({a}, '{b}', '{c}')" for (a, b, c) in values
+        )
+        query_str = 'INSERT INTO wallet (id, address, address_type) VALUES' + \
+                    argument_string
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_insert_collection(self, values):
-        argument_string = ",".join("(%s, '%s')" % (a, b) for (a, b) in values)
-        query_str = """INSERT INTO collection (id, policy_id) VALUES""" + argument_string
+        argument_string = ','.join(
+            f"({a}, '{b}')"
+            for (a, b) in values
+        )
+        query_str = 'INSERT INTO collection (id, policy_id) VALUES' + \
+                    argument_string
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_insert_asset_mint_tx(self, values):
-        argument_string = ",".join(
-            "(%s, %s, %s, %s, '%s', TIMESTAMP '%s', $$%s$$, %s, %s)" % (a, b, c, d, e, f, g, h, i) for
+        argument_string = ','.join(
+            f"({a}, {b}, {c}, {d}, '{e}', TIMESTAMP '{f}', $${g}$$, {h}, {i})" for
             (a, b, c, d, e, f, g, h, i) in
-            values)
-        query_str = """INSERT INTO asset_mint_tx (id, asset_id, wallet_id, quantity, tx_hash, tx_time, image, metadata, files) 
-    VALUES""" + argument_string
+            values
+        )
+        query_str = 'INSERT INTO asset_mint_tx ' \
+                    '(id, asset_id, wallet_id, quantity, ' \
+                    'tx_hash, tx_time, image, metadata, files) ' \
+                    'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_insert_asset_tx(self, values):
-        argument_string = ",".join(
-            "(%s, %s, %s, %s, '%s', TIMESTAMP '%s')" % (a, b, c, d, e, f) for (a, b, c, d, e, f) in
-            values)
-        query_str = """INSERT INTO asset_tx (id, asset_id, wallet_id, quantity, tx_hash, tx_time) 
-    VALUES""" + argument_string
+        argument_string = ','.join(
+            f"({a}, {b}, {c}, {d}, '{e}', TIMESTAMP '{f}')" for (a, b, c, d, e, f) in
+            values
+        )
+        query_str = 'INSERT INTO asset_tx ' \
+                    '(id, asset_id, wallet_id, ' \
+                    'quantity, tx_hash, tx_time) ' \
+                    'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_insert_asset(self, values):
-        argument_string = ",".join(
-            "(%s, %s, '%s', '%s', '%s', %s)" % (a, b, c, d, e, f) for (a, b, c, d, e, f)
-            in values)
-        query_str = """INSERT INTO asset (id, collection_id, hash, name, fingerprint, current_wallet_id) 
-    VALUES""" + argument_string
+        argument_string = ','.join(
+            f"({a}, {b}, '{c}', '{d}', '{e}', {f})" for (a, b, c, d, e, f)
+            in values
+        )
+        query_str = 'INSERT INTO asset ' \
+                    '(id, collection_id, hash, name, ' \
+                    'fingerprint, current_wallet_id) ' \
+                    'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_insert_asset_ext(self, values):
-        argument_string = ",".join(
-            "(%s, %s, %s)" % (a, b, c) for (a, b, c)
-            in values)
-        query_str = """INSERT INTO asset_ext (asset_id, latest_mint_tx_id, latest_tx_id) 
-    VALUES""" + argument_string
+        argument_string = ','.join(
+            f'({a}, {b}, {c})' for (a, b, c)
+            in values
+        )
+        query_str = 'INSERT INTO asset_ext ' \
+                    '(asset_id, latest_mint_tx_id, latest_tx_id) ' \
+                    'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_update_asset_ext_latest_mint_tx_id(self, values):
-        argument_string = ",".join(
-            "(%s, %s)" % (a, b) for (a, b) in values)
-        query_str = f"""UPDATE asset_ext AS ae SET latest_mint_tx_id = v.latest_mint_tx_id FROM (VALUES{argument_string}) AS v(asset_id, latest_mint_tx_id) WHERE ae.asset_id = v.asset_id"""
+        argument_string = ','.join(
+            f'({a}, {b})' for (a, b) in values
+        )
+        query_str = f"""UPDATE asset_ext AS ae
+        SET latest_mint_tx_id = v.latest_mint_tx_id
+        FROM (VALUES{argument_string}) AS v(asset_id, latest_mint_tx_id)
+        WHERE ae.asset_id = v.asset_id"""
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_update_asset_ext_latest_tx_id(self, values):
-        argument_string = ",".join(
-            "(%s, %s)" % (a, b) for (a, b) in values)
-        query_str = f"""UPDATE asset_ext AS ae SET latest_tx_id = v.latest_tx_id FROM (VALUES{argument_string}) AS v(asset_id, latest_tx_id) WHERE ae.asset_id = v.asset_id"""
+        argument_string = ','.join(
+            f'({a}, {b})' for (a, b) in values
+        )
+        query_str = f"""UPDATE asset_ext AS ae
+        SET latest_tx_id = v.latest_tx_id
+        FROM (VALUES{argument_string}) AS v(asset_id, latest_tx_id)
+        WHERE ae.asset_id = v.asset_id"""
         self.pantasia_cur.execute(query_str)
 
     @measure_time
     def pantasia_update_asset_current_wallet_id(self, values):
-        argument_string = ",".join(
-            "(%s, %s)" % (a, b) for (a, b) in values)
-        query_str = f"""UPDATE asset AS a SET current_wallet_id = v.current_wallet_id FROM (VALUES{argument_string}) AS v(id, current_wallet_id) WHERE a.id = v.id"""
+        argument_string = ','.join(
+            f'({a}, {b})' for (a, b) in values
+        )
+        query_str = f"""UPDATE asset AS a
+        SET current_wallet_id = v.current_wallet_id
+        FROM (VALUES{argument_string}) AS v(id, current_wallet_id)
+        WHERE a.id = v.id"""
         self.pantasia_cur.execute(query_str)
 
 
@@ -490,29 +608,31 @@ def hex_to_string(hex_string):
 
 if __name__ == '__main__':
     # Read logging config
-    logging.config.dictConfig(read_yaml("logging.yaml"))
+    logging.config.dictConfig(read_yaml('../logging.yaml'))
 
     # Create logger
     logger = logging.getLogger('pantasia-db-sync')
 
     # Read DB Config
-    db_config = read_yaml("dbconfig.yaml")
+    db_config = read_yaml('../dbconfig.yaml')
 
     # Initialize Db conections to Cardano DB and Pantasia DB
     db = Db(db_config)
 
     # Initialize and load data from Pantasia DB
-    bd_asset_id_x_fingerprint = db.pantasia_load_id_map("asset", "fingerprint")
-    bd_wallet_id_x_address = db.pantasia_load_id_map("wallet", "address")
-    bd_collection_id_x_policy_id = db.pantasia_load_id_map("collection", "policy_id")
-    d_asset_id_x_asset_ext_exists = db.pantasia_load_asset_ext_asset_id()
+    bd_asset_id_x_fingerprint = db.pantasia_load_id_map('asset', 'fingerprint')
+    bd_wallet_id_x_address = db.pantasia_load_id_map('wallet', 'address')
+    bd_collection_id_x_policy_id = db.pantasia_load_id_map(
+        'collection', 'policy_id',
+    )
+    d_asset_id_x_asset_ext = db.pantasia_load_asset_ext_asset_id()
 
     # Get latest index (id) numbers for each table
-    index_asset = db.pantasia_get_last_index("asset")
-    index_asset_mint_tx = db.pantasia_get_last_index("asset_mint_tx")
-    index_asset_tx = db.pantasia_get_last_index("asset_tx")
-    index_collection = db.pantasia_get_last_index("collection")
-    index_wallet = db.pantasia_get_last_index("wallet")
+    index_asset = db.pantasia_get_last_index('asset')
+    index_asset_mint_tx = db.pantasia_get_last_index('asset_mint_tx')
+    index_asset_tx = db.pantasia_get_last_index('asset_tx')
+    index_collection = db.pantasia_get_last_index('collection')
+    index_wallet = db.pantasia_get_last_index('wallet')
 
     is_startup = True
     from_datetime = None
@@ -553,8 +673,8 @@ if __name__ == '__main__':
             values_update_asset_ext_latest_tx_id = []
             values_update_asset_current_wallet_id = []
 
-
-            # If new element from period_list not the same as the previous, then move the index and get records
+            # If new element from period_list not the same as the previous,
+            # then move the index and get records
             if period_list[0] != from_datetime:
                 from_datetime = period_list.pop(0)
                 to_datetime = period_list[0]
@@ -569,18 +689,28 @@ if __name__ == '__main__':
                     proc_rate = count_difference / time_difference
                     start_count = current_count
                     time_left = len(period_list) / proc_rate
-                    logger.debug(f"{int(proc_rate)} period/s - Estimated {int(time_left)} seconds to go")
+                    logger.debug(
+                        f'{round(proc_rate, 2):.2f} period/s - '
+                        f'Estimated {int(time_left)} seconds to go',
+                    )
 
                 logger.info(
-                    f'period_list_len - {current_count}/{initial_len - 1} | FROM: {from_datetime} | TO: {to_datetime}')
+                    f'period_list_len - {current_count}/{initial_len - 1} '
+                    f'| FROM: {from_datetime} | TO: {to_datetime}',
+                )
 
                 # Retrieve records from Cardano DB
                 time_started = time()
                 records = db.pantasia_get_records(to_datetime, from_datetime)
                 time_elapsed = time()
-                logger.debug("""{execute} running time is {sec} seconds for retrieving {rows} rows."""
-                             .format(execute="main_query", sec=round(time_elapsed - time_started, 4),
-                                     rows=len(records)))
+                logger.debug(
+                    '{execute} running time is {s} seconds for retrieving {rows} rows.'
+                    .format(
+                        execute='main_query',
+                        s=round(time_elapsed - time_started, 4),
+                        rows=len(records),
+                    ),
+                )
 
                 time_started = time()
                 for record in records:
@@ -593,49 +723,74 @@ if __name__ == '__main__':
 
                         if r_stake_address is None:
                             # Get index of payment address if already existing in bidict
-                            address_index = bd_wallet_id_x_address.inverse.get(r_address)
+                            address_index = bd_wallet_id_x_address.inverse.get(
+                                r_address,
+                            )
 
                             # Add new row if can't find in bidict
                             if address_index is None:
-                                # Assign new index number, update bidict and add to values to insert new row in wallet table
+                                # Assign new index number,
+                                # update bidict and add to values
+                                # to insert new row in wallet table
                                 address_index = index_wallet
-                                bd_wallet_id_x_address.put(address_index, r_address)
-                                r_address_type = "ENTERPRISE"
-                                values_insert_wallet.append((address_index, r_address, r_address_type))
+                                bd_wallet_id_x_address.put(
+                                    address_index, r_address,
+                                )
+                                r_address_type = 'ENTERPRISE'
+                                values_insert_wallet.append(
+                                    (address_index, r_address, r_address_type),
+                                )
 
                                 # Increment index number for next record
                                 index_wallet = index_wallet + 1
 
                         else:
                             # Get index of stake address if already existing in bidict
-                            address_index = bd_wallet_id_x_address.inverse.get(r_stake_address)
+                            address_index = bd_wallet_id_x_address.inverse.get(
+                                r_stake_address,
+                            )
 
                             # Add new row if can't find in bidict
                             if address_index is None:
-                                # Assign new index number, update bidict and add to values to insert new row in wallet table
+                                # Assign new index number,
+                                # update bidict and add to values
+                                # to insert new row in wallet table
                                 address_index = index_wallet
-                                bd_wallet_id_x_address.put(address_index, r_stake_address)
-                                r_address_type = "STAKE"
-                                values_insert_wallet.append((address_index, r_stake_address, r_address_type))
+                                bd_wallet_id_x_address.put(
+                                    address_index, r_stake_address,
+                                )
+                                r_address_type = 'STAKE'
+                                values_insert_wallet.append(
+                                    (address_index, r_stake_address, r_address_type),
+                                )
 
                                 # Increment index number for next record
                                 index_wallet = index_wallet + 1
                     else:
-                        # Assign null value to address index, this is expected for burn tx (mint tx with negative quantity)
+                        # Assign null value to address index,
+                        # this is expected for burn tx (mint tx with negative quantity)
                         address_index = 'Null'
 
                     # Add policy id to collection table
                     r_policy_id = record['policy_id']
 
                     # Get index of policy id if already existing in bidict
-                    policy_index = bd_collection_id_x_policy_id.inverse.get(r_policy_id)
+                    policy_index = bd_collection_id_x_policy_id.inverse.get(
+                        r_policy_id,
+                    )
 
                     # Add new row if can't find in bidict
                     if policy_index is None:
-                        # Assign new index number, update bidict and add to values to insert new row in collection table
+                        # Assign new index number,
+                        # update bidict and add to values
+                        # to insert new row in collection table
                         policy_index = index_collection
-                        bd_collection_id_x_policy_id.put(policy_index, r_policy_id)
-                        values_insert_collection.append((policy_index, r_policy_id,))
+                        bd_collection_id_x_policy_id.put(
+                            policy_index, r_policy_id,
+                        )
+                        values_insert_collection.append(
+                            (policy_index, r_policy_id),
+                        )
 
                         # Increment index number for next record
                         index_collection = index_collection + 1
@@ -643,7 +798,9 @@ if __name__ == '__main__':
                     # Process asset, asset_mint_tx and asset_tx
                     is_mint_tx = record['is_mint_tx']
                     # Get index of asset if already existing in bidict
-                    asset_fingerprint_index = bd_asset_id_x_fingerprint.inverse.get(record['asset_fingerprint'])
+                    asset_fingerprint_index = bd_asset_id_x_fingerprint.inverse.get(
+                        record['asset_fingerprint'],
+                    )
 
                     # Process asset_mint_tx
                     if is_mint_tx is True:
@@ -652,34 +809,60 @@ if __name__ == '__main__':
 
                         # Add new row if can't find in bidict
                         if asset_fingerprint_index is None:
-                            # Assign new index number, update bidict and add to values to insert new row in asset table
+                            # Assign new index number,
+                            # update bidict and add to values
+                            # to insert new row in asset table
                             asset_fingerprint_index = index_asset
-                            bd_asset_id_x_fingerprint.put(asset_fingerprint_index, record['asset_fingerprint'])
-                            values_insert_asset.append((asset_fingerprint_index, policy_index,
-                                                        f"{record['policy_id']}.{str(record['asset_name_hash'])}",
-                                                        hex_to_string(str(record['asset_name_hash'])),
-                                                        record['asset_fingerprint'], address_index))
-                            d_asset_id_x_asset_ext_exists[asset_fingerprint_index] = False
+                            bd_asset_id_x_fingerprint.put(
+                                asset_fingerprint_index,
+                                record['asset_fingerprint'],
+                            )
+                            values_insert_asset.append((
+                                asset_fingerprint_index,
+                                policy_index,
+                                f"{record['policy_id']}."
+                                f"{str(record['asset_name_hash'])}",
+                                hex_to_string(str(record['asset_name_hash'])),
+                                record['asset_fingerprint'],
+                                address_index,
+                            ))
+                            d_asset_id_x_asset_ext[asset_fingerprint_index] = False
 
                             # Increment index number for next record
                             index_asset = index_asset + 1
 
-                        # Update latest_mint_tx_id in asset if it is a mint tx, except burn tx
+                        # Update latest_mint_tx_id in asset
+                        # if it is a mint tx, except burn tx
                         if record['quantity'] > 0:
-                            if d_asset_id_x_asset_ext_exists[asset_fingerprint_index] is True:
+                            if d_asset_id_x_asset_ext[asset_fingerprint_index] is True:
                                 # Update asset entry with latest_mint_tx_id
                                 values_update_asset_ext_latest_mint_tx_id.append(
-                                    (asset_fingerprint_index, asset_mint_tx_index))
+                                    (asset_fingerprint_index, asset_mint_tx_index),
+                                )
                             else:
                                 # Add to values to insert new row in asset_ext table
-                                values_insert_asset_ext.append((asset_fingerprint_index, asset_mint_tx_index, 'Null'))
-                                d_asset_id_x_asset_ext_exists[asset_fingerprint_index] = True
+                                values_insert_asset_ext.append(
+                                    (
+                                        asset_fingerprint_index,
+                                        asset_mint_tx_index, 'Null',
+                                    ),
+                                )
+                                d_asset_id_x_asset_ext[asset_fingerprint_index] = True
 
                         # Add to values to insert new row in asset_mint_tx table
                         values_insert_asset_mint_tx.append(
-                            (asset_mint_tx_index, asset_fingerprint_index, address_index, record['quantity'],
-                             record['tx_hash'], record['tx_time'], record['image'], Json(record['metadata']),
-                             Json(record['files'])))
+                            (
+                                asset_mint_tx_index,
+                                asset_fingerprint_index,
+                                address_index,
+                                record['quantity'],
+                                record['tx_hash'],
+                                record['tx_time'],
+                                record['image'],
+                                Json(record['metadata']),
+                                Json(record['files']),
+                            ),
+                        )
 
                         # Increment index number for next record
                         index_asset_mint_tx = index_asset_mint_tx + 1
@@ -691,58 +874,99 @@ if __name__ == '__main__':
 
                         # Add new row if can't find in bidict
                         if asset_fingerprint_index is None:
-                            # Assign new index number, update bidict and add to values to insert new row in asset table
+                            # Assign new index number, update bidict
+                            # and add to values to insert new row in asset table
                             asset_fingerprint_index = index_asset
-                            bd_asset_id_x_fingerprint.put(asset_fingerprint_index, record['asset_fingerprint'])
-                            values_insert_asset.append((asset_fingerprint_index, policy_index,
-                                                        f"{record['policy_id']}.{record['asset_name_hash']}",
-                                                        hex_to_string(str(record['asset_name_hash'])),
-                                                        record['asset_fingerprint'], address_index))
-                            d_asset_id_x_asset_ext_exists[asset_fingerprint_index] = False
+                            bd_asset_id_x_fingerprint.put(
+                                asset_fingerprint_index, record['asset_fingerprint'],
+                            )
+                            values_insert_asset.append((
+                                asset_fingerprint_index, policy_index,
+                                f"{record['policy_id']}.{record['asset_name_hash']}",
+                                hex_to_string(str(record['asset_name_hash'])),
+                                record['asset_fingerprint'], address_index,
+                            ))
+                            d_asset_id_x_asset_ext[asset_fingerprint_index] = False
 
                             # Increment index number for next record
                             index_asset = index_asset + 1
                         else:
                             # Update asset entry with current_wallet_id
-                            values_update_asset_current_wallet_id.append((asset_fingerprint_index, address_index))
+                            values_update_asset_current_wallet_id.append(
+                                (asset_fingerprint_index, address_index),
+                            )
 
-                        if d_asset_id_x_asset_ext_exists[asset_fingerprint_index] is True:
+                        if d_asset_id_x_asset_ext[asset_fingerprint_index] is True:
                             # Update asset entry with latest_tx_id
-                            values_update_asset_ext_latest_tx_id.append((asset_fingerprint_index, asset_tx_index))
+                            values_update_asset_ext_latest_tx_id.append(
+                                (asset_fingerprint_index, asset_tx_index),
+                            )
                         else:
                             # Add to values to insert new row in asset_ext table
-                            values_insert_asset_ext.append((asset_fingerprint_index, 'Null', asset_tx_index))
-                            d_asset_id_x_asset_ext_exists[asset_fingerprint_index] = True
+                            values_insert_asset_ext.append(
+                                (asset_fingerprint_index, 'Null', asset_tx_index),
+                            )
+                            d_asset_id_x_asset_ext[asset_fingerprint_index] = True
 
                         # Add to values to insert new row in asset_tx table
                         values_insert_asset_tx.append(
-                            (asset_tx_index, asset_fingerprint_index, address_index, record['quantity'],
-                             record['tx_hash'], record['tx_time']))
+                            (
+                                asset_tx_index,
+                                asset_fingerprint_index,
+                                address_index,
+                                record['quantity'],
+                                record['tx_hash'],
+                                record['tx_time'],
+                            ),
+                        )
 
                         # Increment index number for next record
                         index_asset_tx = index_asset_tx + 1
                 time_elapsed = time()
-                logger.debug("""{execute} running time is {sec} seconds for processing {rows} rows."""
-                             .format(execute="Processing", sec=round(time_elapsed - time_started, 4),
-                                     rows=len(records)))
+                logger.debug(
+                    '{execute} running time is {s} seconds for processing {rows} rows.'
+                    .format(
+                        execute='Processing',
+                        s=round(time_elapsed - time_started, 4),
+                        rows=len(records),
+                    ),
+                )
 
                 if len(values_insert_wallet) > 0:
-                    db.pantasia_insert_wallet(values=values_insert_wallet)
+                    db.pantasia_insert_wallet(
+                        values=values_insert_wallet,
+                    )
                 if len(values_insert_collection) > 0:
-                    db.pantasia_insert_collection(values=values_insert_collection)
+                    db.pantasia_insert_collection(
+                        values=values_insert_collection,
+                    )
                 if len(values_insert_asset) > 0:
-                    db.pantasia_insert_asset(values=values_insert_asset)
+                    db.pantasia_insert_asset(
+                        values=values_insert_asset,
+                    )
                 if len(values_insert_asset_mint_tx) > 0:
-                    db.pantasia_insert_asset_mint_tx(values=values_insert_asset_mint_tx)
+                    db.pantasia_insert_asset_mint_tx(
+                        values=values_insert_asset_mint_tx,
+                    )
                 if len(values_insert_asset_tx) > 0:
-                    db.pantasia_insert_asset_tx(values=values_insert_asset_tx)
+                    db.pantasia_insert_asset_tx(
+                        values=values_insert_asset_tx,
+                    )
                 if len(values_insert_asset_ext) > 0:
-                    db.pantasia_insert_asset_ext(values=values_insert_asset_ext)
+                    db.pantasia_insert_asset_ext(
+                        values=values_insert_asset_ext,
+                    )
                 if len(values_update_asset_ext_latest_mint_tx_id) > 0:
-                    db.pantasia_update_asset_ext_latest_mint_tx_id(values=values_update_asset_ext_latest_mint_tx_id)
+                    db.pantasia_update_asset_ext_latest_mint_tx_id(
+                        values=values_update_asset_ext_latest_mint_tx_id,
+                    )
                 if len(values_update_asset_ext_latest_tx_id) > 0:
-                    db.pantasia_update_asset_ext_latest_tx_id(values=values_update_asset_ext_latest_tx_id)
+                    db.pantasia_update_asset_ext_latest_tx_id(
+                        values=values_update_asset_ext_latest_tx_id,
+                    )
                 if len(values_update_asset_current_wallet_id) > 0:
-                    db.pantasia_update_asset_current_wallet_id(values=values_update_asset_current_wallet_id)
+                    db.pantasia_update_asset_current_wallet_id(
+                        values=values_update_asset_current_wallet_id,
+                    )
 
                 db.pantasia_conn.commit()
