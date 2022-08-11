@@ -4,12 +4,11 @@ import logging.config
 from time import sleep
 from time import time
 
+from cardano import get_staking_address
+from db import Db
+from misc import hex_to_string
+from misc import read_yaml
 from psycopg2.extras import Json
-
-from app.cardano import get_staking_address
-from app.db import Db
-from app.misc import hex_to_string
-from app.misc import read_yaml
 
 
 if __name__ == '__main__':
