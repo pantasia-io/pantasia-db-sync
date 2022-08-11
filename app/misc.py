@@ -3,7 +3,7 @@ from __future__ import annotations
 import yaml
 
 
-def read_yaml(filepath):
+def read_yaml(filepath: str) -> dict:
     with open(filepath) as yaml_file:
         try:
             yaml_data = yaml.safe_load(yaml_file)
@@ -12,7 +12,7 @@ def read_yaml(filepath):
             print(exc)
 
 
-def hex_to_string(hex_string):
+def hex_to_string(hex_string: str) -> str:
     try:
         asset_name = bytearray.fromhex(hex_string)
         asset_name = asset_name.replace(b'\x00', b' ')

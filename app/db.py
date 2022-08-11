@@ -4,9 +4,11 @@ import logging
 from datetime import datetime
 from datetime import timedelta
 from time import time
+from typing import Callable
 
 import bidict as bd
 import psycopg2
+from bidict import bidict
 from psycopg2.extras import RealDictCursor
 
 
@@ -14,7 +16,7 @@ logger = logging.getLogger('pantasia-db-sync')
 
 
 class Db:
-    def __init__(self, config):
+    def __init__(self, config: dict) -> None:
         self.config = config
 
         # Connect to Cardano and Pantasia postgres DB
@@ -53,8 +55,8 @@ class Db:
         self.old_pantasia_tip = None
 
     @staticmethod
-    def measure_time(func):
-        def time_it(*args, **kwargs):
+    def measure_time(func: Callable) -> Callable:
+        def time_it(*args: any, **kwargs: any) -> None:
             time_started = time()
             func(*args, **kwargs)
             time_elapsed = time()
@@ -74,13 +76,13 @@ class Db:
 
         return time_it
 
-    def close_connections(self):
+    def close_connections(self) -> None:
         self.cardano_cur.close()
         self.cardano_conn.close()
         self.pantasia_cur.close()
         self.pantasia_conn.close()
 
-    def pantasia_create_tables(self):
+    def pantasia_create_tables(self) -> None:
         query = """
                 CREATE TABLE IF NOT EXISTS "user" (
                 id serial4 PRIMARY KEY,
@@ -146,11 +148,11 @@ class Db:
 
     def pantasia_add_foreign_key(
             self,
-            table_name,
-            foreign_key,
-            reference_table_name,
-            reference_key,
-    ):
+            table_name: str,
+            foreign_key: str,
+            reference_table_name: str,
+            reference_key: str,
+    ) -> None:
         constraint_name = f'fk_{table_name}' \
                           f'_{foreign_key}' \
                           f'_{reference_table_name}'
@@ -181,10 +183,10 @@ class Db:
 
     def pantasia_remove_foreign_key(
             self,
-            table_name,
-            foreign_key,
-            reference_table_name,
-    ):
+            table_name: str,
+            foreign_key: str,
+            reference_table_name: str,
+    ) -> None:
         constraint_name = f'fk_{table_name}' \
                           f'_{foreign_key}' \
                           f'_{reference_table_name}'
@@ -200,7 +202,7 @@ class Db:
                 """.format(table_name, constraint_name)
         self.pantasia_cur.execute(query)
 
-    def pantasia_create_fk(self):
+    def pantasia_create_fk(self) -> None:
         # Create Foreign Keys
         self.pantasia_add_foreign_key(
             'asset', 'collection_id', 'collection', 'id',
@@ -229,12 +231,12 @@ class Db:
         self.pantasia_add_foreign_key('wallet', 'user_id', 'user', 'id')
         self.pantasia_conn.commit()
 
-    def pantasia_create(self):
+    def pantasia_create(self) -> None:
         # Create Pantasia DB if not exist
         self.pantasia_create_tables()
         self.pantasia_create_fk()
 
-    def pantasia_get_last_index(self, table_name):
+    def pantasia_get_last_index(self, table_name: str) -> int:
         self.pantasia_cur.execute(
             f'SELECT id FROM {table_name} ORDER BY id DESC LIMIT 1',
         )
@@ -244,7 +246,7 @@ class Db:
         else:
             return result['id'] + 1
 
-    def pantasia_load_id_map(self, table_name, natural_key):
+    def pantasia_load_id_map(self, table_name: str, natural_key: str) -> bidict:
         # Load a bidirectional map of primary key to/from natural key
         bd_result = bd.bidict()
 
@@ -265,7 +267,7 @@ class Db:
         )
         return bd_result
 
-    def pantasia_load_asset_ext_asset_id(self):
+    def pantasia_load_asset_ext_asset_id(self) -> dict:
         # Load dictionary to map asset id to existence of
         # corresponding asset_ext record
         d_result = {}
@@ -291,7 +293,7 @@ class Db:
         )
         return d_result
 
-    def get_latest_cardano_tip(self):
+    def get_latest_cardano_tip(self) -> datetime:
         # Get latest block time
         self.cardano_cur.execute("""SELECT b.time AS cardano_tip
             FROM block b
@@ -307,7 +309,7 @@ class Db:
         self.cardano_tip = cardano_tip
         return cardano_tip
 
-    def get_latest_pantasia_tip(self):
+    def get_latest_pantasia_tip(self) -> datetime:
         # Get latest Pantasia tx time
         self.pantasia_cur.execute("""WITH at_tip AS (
             SELECT at2.tx_time
@@ -339,7 +341,7 @@ class Db:
         self.pantasia_tip = pantasia_tip
         return pantasia_tip
 
-    def pantasia_rollback(self):
+    def pantasia_rollback(self) -> None:
         # Prevent duplicates by deleting entries in asset_mint_tx
         # and asset_tx from pantasia_tip to pantasia_tip + time_interval
         logger.info('Rolling back to prevent duplicates...')
@@ -382,7 +384,7 @@ class Db:
             f'from {self.pantasia_tip} to {self.pantasia_tip + time_interval} complete',
         )
 
-    def create_period_list(self, period_list):
+    def create_period_list(self, period_list: list) -> list:
         new_tip = self.pantasia_tip
 
         while new_tip < self.cardano_tip:
@@ -395,7 +397,11 @@ class Db:
 
         return period_list
 
-    def pantasia_get_records(self, target_datetime, from_datetime):
+    def pantasia_get_records(
+            self,
+            target_datetime: datetime,
+            from_datetime: datetime,
+    ) -> list:
         query = """
                 WITH all_ma_tx AS
                 (SELECT mtm.ident AS ma_id,
@@ -466,7 +472,7 @@ class Db:
         return self.cardano_cur.fetchall()
 
     @measure_time
-    def pantasia_insert_wallet(self, values):
+    def pantasia_insert_wallet(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, '{b}', '{c}')" for (a, b, c) in values
         )
@@ -475,7 +481,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_insert_collection(self, values):
+    def pantasia_insert_collection(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, '{b}')"
             for (a, b) in values
@@ -485,7 +491,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_insert_asset_mint_tx(self, values):
+    def pantasia_insert_asset_mint_tx(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, {b}, {c}, {d}, '{e}', TIMESTAMP '{f}', $${g}$$, {h}, {i})" for
             (a, b, c, d, e, f, g, h, i) in
@@ -498,7 +504,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_insert_asset_tx(self, values):
+    def pantasia_insert_asset_tx(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, {b}, {c}, {d}, '{e}', TIMESTAMP '{f}')" for (a, b, c, d, e, f) in
             values
@@ -510,7 +516,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_insert_asset(self, values):
+    def pantasia_insert_asset(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, {b}, '{c}', '{d}', '{e}', {f})" for (a, b, c, d, e, f)
             in values
@@ -522,7 +528,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_insert_asset_ext(self, values):
+    def pantasia_insert_asset_ext(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b}, {c})' for (a, b, c)
             in values
@@ -533,7 +539,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_update_asset_ext_latest_mint_tx_id(self, values):
+    def pantasia_update_asset_ext_latest_mint_tx_id(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b})' for (a, b) in values
         )
@@ -544,7 +550,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_update_asset_ext_latest_tx_id(self, values):
+    def pantasia_update_asset_ext_latest_tx_id(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b})' for (a, b) in values
         )
@@ -555,7 +561,7 @@ class Db:
         self.pantasia_cur.execute(query_str)
 
     @measure_time
-    def pantasia_update_asset_current_wallet_id(self, values):
+    def pantasia_update_asset_current_wallet_id(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b})' for (a, b) in values
         )
