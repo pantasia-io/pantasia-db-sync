@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import logging.config
+import traceback
+from signal import SIGINT
+from signal import signal
+from signal import SIGTERM
 from time import sleep
 from time import time
 
@@ -8,64 +12,66 @@ from cardano import get_staking_address
 from db import Db
 from misc import hex_to_string
 from misc import read_yaml
+from psycopg2 import DataError
+from psycopg2 import IntegrityError
+from psycopg2 import InternalError
 from psycopg2.extras import Json
 
 
-if __name__ == '__main__':
-    # Read logging config
-    logging.config.dictConfig(read_yaml('../logging.yaml'))
+class GracefulKiller:
+    kill_now = False
 
-    # Create logger
-    logger = logging.getLogger('pantasia-db-sync')
+    def __init__(self):
+        signal(SIGINT, self.exit_gracefully)
+        signal(SIGTERM, self.exit_gracefully)
 
-    # Read DB Config
-    db_config = read_yaml('../dbconfig.yaml')
+    def exit_gracefully(self, *args):
+        self.kill_now = True
 
-    # Initialize Db conections to Cardano DB and Pantasia DB
-    db = Db(db_config)
 
+def run(database, terminator):
     # Initialize and load data from Pantasia DB
-    bd_asset_id_x_fingerprint = db.pantasia_load_id_map('asset', 'fingerprint')
-    bd_wallet_id_x_address = db.pantasia_load_id_map('wallet', 'address')
-    bd_collection_id_x_policy_id = db.pantasia_load_id_map(
-        'collection', 'policy_id',
+    bd_asset_id_x_fingerprint = database.pantasia_load_id_map(
+        'asset',
+        'fingerprint',
     )
-    d_asset_id_x_asset_ext = db.pantasia_load_asset_ext_asset_id()
+    bd_wallet_id_x_address = database.pantasia_load_id_map(
+        'wallet',
+        'address',
+    )
+    bd_collection_id_x_policy_id = database.pantasia_load_id_map(
+        'collection',
+        'policy_id',
+    )
+    d_asset_id_x_asset_ext = database.pantasia_load_asset_ext_asset_id()
 
     # Get latest index (id) numbers for each table
-    index_asset = db.pantasia_get_last_index('asset')
-    index_asset_mint_tx = db.pantasia_get_last_index('asset_mint_tx')
-    index_asset_tx = db.pantasia_get_last_index('asset_tx')
-    index_collection = db.pantasia_get_last_index('collection')
-    index_wallet = db.pantasia_get_last_index('wallet')
+    index_asset = database.pantasia_get_last_index('asset')
+    index_asset_mint_tx = database.pantasia_get_last_index('asset_mint_tx')
+    index_asset_tx = database.pantasia_get_last_index('asset_tx')
+    index_collection = database.pantasia_get_last_index('collection')
+    index_wallet = database.pantasia_get_last_index('wallet')
 
-    is_startup = True
     from_datetime = None
-    period_list = [db.pantasia_tip]
+    period_list = [database.pantasia_tip]
 
-    while True:
-        # Pause 10 seconds so that Postgres doesn't get spammed
-        sleep(10)
-
-        # If the service just started, rollback to prevent duplicates
-        if is_startup:
-            # Rollback last period to prevent duplicates
-            db.pantasia_rollback()
-            is_startup = False
-        else:
-            db.get_latest_cardano_tip()
-            db.get_latest_pantasia_tip()
+    while not terminator.kill_now:
+        database.get_latest_cardano_tip()
+        database.get_latest_pantasia_tip()
 
         # Create periods of length $time_interval
-        if db.cardano_tip != db.old_cardano_tip:
-            period_list = db.create_period_list(period_list)
-            db.old_cardano_tip = db.cardano_tip
+        if database.cardano_tip != database.old_cardano_tip:
+            period_list = database.create_period_list(period_list)
+            database.old_cardano_tip = database.cardano_tip
+        else:
+            # Pause 10 seconds so that Postgres doesn't get spammed
+            sleep(10)
 
         initial_len = len(period_list)
         start_count = 0
         start_time = time()
 
-        while len(period_list) > 1:
+        while len(period_list) > 1 and not terminator.kill_now:
 
             # Init lists as containers for data values to be inserted to Pantasia DB
             values_insert_wallet = []
@@ -106,7 +112,7 @@ if __name__ == '__main__':
 
                 # Retrieve records from Cardano DB
                 time_started = time()
-                records = db.pantasia_get_records(to_datetime, from_datetime)
+                records = database.pantasia_get_records(to_datetime, from_datetime)
                 time_elapsed = time()
                 logger.debug(
                     '{execute} running time is {s} seconds for retrieving {rows} rows.'
@@ -250,7 +256,9 @@ if __name__ == '__main__':
                                 values_insert_asset_ext.append(
                                     (
                                         asset_fingerprint_index,
-                                        asset_mint_tx_index, 'Null',
+                                        asset_fingerprint_index,
+                                        asset_mint_tx_index,
+                                        'Null',
                                     ),
                                 )
                                 d_asset_id_x_asset_ext[asset_fingerprint_index] = True
@@ -310,7 +318,12 @@ if __name__ == '__main__':
                         else:
                             # Add to values to insert new row in asset_ext table
                             values_insert_asset_ext.append(
-                                (asset_fingerprint_index, 'Null', asset_tx_index),
+                                (
+                                    asset_fingerprint_index,
+                                    asset_fingerprint_index,
+                                    'Null',
+                                    asset_tx_index,
+                                ),
                             )
                             d_asset_id_x_asset_ext[asset_fingerprint_index] = True
 
@@ -340,40 +353,65 @@ if __name__ == '__main__':
 
                 # Batch insert values into tables
                 if len(values_insert_wallet) > 0:
-                    db.pantasia_insert_wallet(
+                    database.pantasia_insert_wallet(
                         values=values_insert_wallet,
                     )
                 if len(values_insert_collection) > 0:
-                    db.pantasia_insert_collection(
+                    database.pantasia_insert_collection(
                         values=values_insert_collection,
                     )
                 if len(values_insert_asset) > 0:
-                    db.pantasia_insert_asset(
+                    database.pantasia_insert_asset(
                         values=values_insert_asset,
                     )
                 if len(values_insert_asset_mint_tx) > 0:
-                    db.pantasia_insert_asset_mint_tx(
+                    database.pantasia_insert_asset_mint_tx(
                         values=values_insert_asset_mint_tx,
                     )
                 if len(values_insert_asset_tx) > 0:
-                    db.pantasia_insert_asset_tx(
+                    database.pantasia_insert_asset_tx(
                         values=values_insert_asset_tx,
                     )
                 if len(values_insert_asset_ext) > 0:
-                    db.pantasia_insert_asset_ext(
+                    database.pantasia_insert_asset_ext(
                         values=values_insert_asset_ext,
                     )
                 if len(values_update_asset_ext_latest_mint_tx_id) > 0:
-                    db.pantasia_update_asset_ext_latest_mint_tx_id(
+                    database.pantasia_update_asset_ext_latest_mint_tx_id(
                         values=values_update_asset_ext_latest_mint_tx_id,
                     )
                 if len(values_update_asset_ext_latest_tx_id) > 0:
-                    db.pantasia_update_asset_ext_latest_tx_id(
+                    database.pantasia_update_asset_ext_latest_tx_id(
                         values=values_update_asset_ext_latest_tx_id,
                     )
                 if len(values_update_asset_current_wallet_id) > 0:
-                    db.pantasia_update_asset_current_wallet_id(
+                    database.pantasia_update_asset_current_wallet_id(
                         values=values_update_asset_current_wallet_id,
                     )
 
-                db.pantasia_conn.commit()
+                database.pantasia_conn.commit()
+    logger.debug('Exiting gracefully...')
+    database.close_connections()
+
+
+if __name__ == '__main__':
+    killer = GracefulKiller()
+
+    # Read logging config
+    logging.config.dictConfig(read_yaml('../logging.yaml'))
+
+    # Create logger
+    logger = logging.getLogger('pantasia-db-sync')
+
+    # Read DB Config
+    db_config = read_yaml('../dbconfig.yaml')
+
+    # Initialize Db connections to Cardano DB and Pantasia DB
+    db = Db(db_config)
+    try:
+        run(db, killer)
+    # except KeyboardInterrupt:
+    #     db.close_connections()
+    except (IntegrityError, DataError, InternalError, TypeError, MemoryError, OSError):
+        logger.exception(traceback.format_exc())
+        db.close_connections()

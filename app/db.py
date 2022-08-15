@@ -81,6 +81,7 @@ class Db:
         self.cardano_conn.close()
         self.pantasia_cur.close()
         self.pantasia_conn.close()
+        logger.info('Database connections have been closed.')
 
     def pantasia_create_tables(self) -> None:
         query = """
@@ -222,6 +223,9 @@ class Db:
         self.pantasia_add_foreign_key('asset_tx', 'wallet_id', 'wallet', 'id')
 
         self.pantasia_add_foreign_key(
+            'asset_ext', 'asset_id', 'asset', 'id',
+        )
+        self.pantasia_add_foreign_key(
             'asset_ext', 'latest_mint_tx_id', 'asset_mint_tx', 'id',
         )
         self.pantasia_add_foreign_key(
@@ -240,6 +244,7 @@ class Db:
         self.pantasia_cur.execute(
             f'SELECT id FROM {table_name} ORDER BY id DESC LIMIT 1',
         )
+        self.pantasia_conn.commit()
         result = self.pantasia_cur.fetchone()
         if result is None:
             return 1
@@ -255,6 +260,7 @@ class Db:
         self.pantasia_cur.execute(
             f'SELECT id, {natural_key} FROM {table_name} ORDER BY id ASC',
         )
+        self.pantasia_conn.commit()
         results = self.pantasia_cur.fetchall()
 
         for result in results:
@@ -279,6 +285,7 @@ class Db:
                 LEFT JOIN asset_ext ae ON a.id = ae.asset_id
                 ORDER BY id ASC""",
         )
+        self.pantasia_conn.commit()
         results = self.pantasia_cur.fetchall()
 
         for result in results:
@@ -299,6 +306,7 @@ class Db:
             FROM block b
             ORDER BY b.time DESC
             LIMIT 1""")
+        self.pantasia_conn.commit()
 
         # cardano_tip delayed 2 minutes as a buffer
         # to allow cardano_db_sync to complete insertions
@@ -328,6 +336,8 @@ class Db:
         SELECT amtt.tx_time AS pantasia_tip FROM amt_tip amtt
         ORDER BY pantasia_tip DESC
         LIMIT 1""")
+        self.pantasia_conn.commit()
+
         pantasia_tip = self.pantasia_cur.fetchone()
 
         if pantasia_tip is not None:
@@ -335,54 +345,11 @@ class Db:
         else:
             # Genesis - First block containing native assets
             logger.info('pantasia_tip not found, starting from Genesis')
-            pantasia_tip = datetime.fromisoformat('2021-03-01 21:47:37.000')
+            pantasia_tip = datetime.fromisoformat('2021-03-01 21:47:00.000')
 
         logger.info(f'Pantasia DB Tip is at {pantasia_tip}')
         self.pantasia_tip = pantasia_tip
         return pantasia_tip
-
-    def pantasia_rollback(self) -> None:
-        # Prevent duplicates by deleting entries in asset_mint_tx
-        # and asset_tx from pantasia_tip to pantasia_tip + time_interval
-        logger.info('Rolling back to prevent duplicates...')
-        time_interval = timedelta(hours=self.config['time_interval'])
-
-        logger.info(
-            f'Deleting from asset_tx and asset_mint_tx from {self.pantasia_tip} '
-            f'to {self.pantasia_tip + time_interval}',
-        )
-
-        self.pantasia_cur.execute(
-            f"""WITH select_asset_ids AS (
-                SELECT asset_id FROM asset_tx at2
-                WHERE at2.tx_time >= TIMESTAMP '{self.pantasia_tip}'
-                    AND at2.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'
-                UNION ALL
-                SELECT asset_Id FROM asset_mint_tx amt
-                WHERE amt.tx_time >= TIMESTAMP '{self.pantasia_tip}'
-                    AND amt.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'
-                )
-                DELETE FROM asset_ext ae
-                WHERE ae.asset_id IN
-                (
-                SELECT asset_id FROM select_asset_ids sai
-                )""",
-        )
-        self.pantasia_cur.execute(
-            f"""DELETE FROM asset_tx at2 WHERE at2.tx_time >= TIMESTAMP '{self.pantasia_tip}'
-            AND at2.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'""",
-        )
-
-        self.pantasia_cur.execute(
-            f"""DELETE FROM asset_mint_tx atm WHERE atm.tx_time >= TIMESTAMP '{self.pantasia_tip}'
-            AND atm.tx_time < TIMESTAMP '{self.pantasia_tip + time_interval}'""",
-        )
-        self.pantasia_conn.commit()
-
-        logger.info(
-            'Delete from asset_tx, asset_mint_tx and asset_ext '
-            f'from {self.pantasia_tip} to {self.pantasia_tip + time_interval} complete',
-        )
 
     def create_period_list(self, period_list: list) -> list:
         new_tip = self.pantasia_tip
@@ -418,8 +385,8 @@ class Db:
                 JOIN block b ON b.id = t.block_id
                 JOIN multi_asset ma ON ma.id = mtm.ident
                 WHERE mtm.quantity < 0
-                 AND b."time" >= %s
-                 AND b."time" < %s
+                 AND b."time" > %s
+                 AND b."time" <= %s
                 UNION ALL SELECT mto.ident AS ma_id,
                                 encode(ma2.policy::bytea, 'hex'::text) AS policy_id,
                                 encode(ma2.name::bytea, 'escape'::text) AS asset_name,
@@ -435,8 +402,8 @@ class Db:
                 JOIN block b2 ON t2.block_id = b2.id
                 join multi_asset ma2 ON ma2.id = mto.ident
                 LEFT JOIN stake_address sa ON to2.stake_address_id = sa.id
-                WHERE b2."time" >= %s
-                 AND b2."time" < %s )
+                WHERE b2."time" > %s
+                 AND b2."time" <= %s )
                 SELECT policy_id,
                    asset_fingerprint,
                    asset_name,
@@ -469,6 +436,7 @@ class Db:
             from_datetime, target_datetime,
         )
         self.cardano_cur.execute(query, values)
+        self.cardano_conn.commit()
         return self.cardano_cur.fetchall()
 
     @measure_time
@@ -530,11 +498,11 @@ class Db:
     @measure_time
     def pantasia_insert_asset_ext(self, values: list) -> None:
         argument_string = ','.join(
-            f'({a}, {b}, {c})' for (a, b, c)
+            f'({a}, {b}, {c}, {d})' for (a, b, c, d)
             in values
         )
         query_str = 'INSERT INTO asset_ext ' \
-                    '(asset_id, latest_mint_tx_id, latest_tx_id) ' \
+                    '(id, asset_id, latest_mint_tx_id, latest_tx_id) ' \
                     'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
