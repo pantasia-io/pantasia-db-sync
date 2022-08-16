@@ -18,18 +18,7 @@ from psycopg2 import InternalError
 from psycopg2.extras import Json
 
 
-class GracefulKiller:
-    kill_now = False
-
-    def __init__(self):
-        signal(SIGINT, self.exit_gracefully)
-        signal(SIGTERM, self.exit_gracefully)
-
-    def exit_gracefully(self, *args):
-        self.kill_now = True
-
-
-def run(database, terminator):
+def run(database):
     # Initialize and load data from Pantasia DB
     bd_asset_id_x_fingerprint = database.pantasia_load_id_map(
         'asset',
@@ -55,7 +44,7 @@ def run(database, terminator):
     from_datetime = None
     period_list = [database.pantasia_tip]
 
-    while not terminator.kill_now:
+    while True:
         database.get_latest_cardano_tip()
         database.get_latest_pantasia_tip()
 
@@ -68,8 +57,8 @@ def run(database, terminator):
             sleep(10)
 
         initial_len = len(period_list)
-        while len(period_list) > 1 and not terminator.kill_now:
 
+        while len(period_list) > 1:
             start_time = time()
             # Init lists as containers for data values to be inserted to Pantasia DB
             values_insert_wallet = []
@@ -376,20 +365,27 @@ def run(database, terminator):
                     )
 
                 database.pantasia_conn.commit()
-    logger.debug('Exiting gracefully...')
-    database.close_connections()
 
-    time_difference = time() - start_time
-    count_difference = len(records)
-    proc_rate = count_difference / time_difference
-    logger.debug(
-        f'{round(proc_rate, 2):.2f} record(s)/s',
-    )
+                time_difference = time() - start_time
+                count_difference = len(records)
+                proc_rate = count_difference / time_difference
+                logger.debug(
+                    f'{round(proc_rate, 2):.2f} record(s)/s',
+                )
+
+
+class GracefulKiller:
+    def __init__(self, db: Db):
+        self.db = db
+        signal(SIGINT, self.exit_gracefully)
+        signal(SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, *args):
+        self.db.close_connections()
+        quit()
 
 
 if __name__ == '__main__':
-    killer = GracefulKiller()
-
     # Read logging config
     logging.config.dictConfig(read_yaml('../logging.yaml'))
 
@@ -401,10 +397,9 @@ if __name__ == '__main__':
 
     # Initialize Db connections to Cardano DB and Pantasia DB
     db = Db(db_config)
+    killer = GracefulKiller(db)
     try:
-        run(db, killer)
-    # except KeyboardInterrupt:
-    #     db.close_connections()
+        run(db)
     except (IntegrityError, DataError, InternalError, TypeError, MemoryError, OSError):
         logger.exception(traceback.format_exc())
         db.close_connections()
