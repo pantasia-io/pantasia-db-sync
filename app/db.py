@@ -400,8 +400,8 @@ class Db:
                 JOIN tx_out to2 ON mto.tx_out_id = to2.id
                 JOIN tx t2 ON to2.tx_id = t2.id
                 JOIN block b2 ON t2.block_id = b2.id
-                join multi_asset ma2 ON ma2.id = mto.ident
-                LEFT JOIN stake_address sa ON to2.stake_address_id = sa.id
+                JOIN multi_asset ma2 ON ma2.id = mto.ident
+                LEFT OUTER JOIN stake_address sa ON to2.stake_address_id = sa.id
                 WHERE b2."time" > %s
                  AND b2."time" <= %s )
                 SELECT policy_id,
@@ -425,8 +425,9 @@ class Db:
                       tm.json -> amt.policy_id -> amt.asset_name -> 'files' AS files
                 FROM ma_tx_mint mtm2
                 LEFT OUTER JOIN tx_metadata tm ON tm.tx_id = amt.tx_id
-                WHERE mtm2.ident = amt.ma_id
-                 AND mtm2.tx_id = amt.tx_id) label_mint_tx ON true
+                WHERE (mtm2.ident = amt.ma_id
+                 AND mtm2.tx_id = amt.tx_id)
+                 AND (tm."key" IN (721) OR mtm2.quantity < 0)) label_mint_tx ON true
                 JOIN tx t3 ON amt.tx_id = t3.id
                 JOIN block b3 ON t3.block_id = b3.id
                 ORDER BY b3.time asc
