@@ -1,17 +1,25 @@
 version: 1
 formatters:
   simple:
-    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format: '%(asctime)s | %(levelname)-8s | %(name)-15s | %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
 handlers:
   console:
     class: logging.StreamHandler
     level: DEBUG
     formatter: simple
     stream: ext://sys.stdout
+  file:
+    class : logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: simple
+    filename: pantasia-db-sync.log
+    maxBytes: 5242880
+    backupCount: 5
 loggers:
   pantasia-db-sync:
     level: DEBUG
-    handlers: [console]
+    handlers: [console, file]
     propagate: no
 root:
   level: DEBUG
