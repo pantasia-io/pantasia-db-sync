@@ -68,11 +68,9 @@ def run(database, terminator):
             sleep(10)
 
         initial_len = len(period_list)
-        start_count = 0
-        start_time = time()
-
         while len(period_list) > 1 and not terminator.kill_now:
 
+            start_time = time()
             # Init lists as containers for data values to be inserted to Pantasia DB
             values_insert_wallet = []
             values_insert_collection = []
@@ -92,18 +90,6 @@ def run(database, terminator):
 
                 # Some math for completion time estimation
                 current_count = initial_len - len(period_list)
-
-                time_difference = time() - start_time
-                if time_difference > 15:
-                    start_time = time()
-                    count_difference = current_count - start_count
-                    proc_rate = count_difference / time_difference
-                    start_count = current_count
-                    time_left = len(period_list) / proc_rate
-                    logger.debug(
-                        f'{round(proc_rate, 2):.2f} period/s - '
-                        f'Estimated {int(time_left)} seconds to go',
-                    )
 
                 logger.info(
                     f'period_list_len - {current_count}/{initial_len - 1} '
@@ -392,6 +378,13 @@ def run(database, terminator):
                 database.pantasia_conn.commit()
     logger.debug('Exiting gracefully...')
     database.close_connections()
+
+    time_difference = time() - start_time
+    count_difference = len(records)
+    proc_rate = count_difference / time_difference
+    logger.debug(
+        f'{round(proc_rate, 2):.2f} record(s)/s',
+    )
 
 
 if __name__ == '__main__':
