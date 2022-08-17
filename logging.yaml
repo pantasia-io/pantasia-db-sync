@@ -18,7 +18,7 @@ handlers:
     backupCount: 5
 loggers:
   pantasia-db-sync:
-    level: DEBUG
+    level: ${LOG_LEVEL}
     handlers: [console, file]
     propagate: no
 root:

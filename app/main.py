@@ -16,6 +16,7 @@ from psycopg2 import DataError
 from psycopg2 import IntegrityError
 from psycopg2 import InternalError
 from psycopg2.extras import Json
+from settings import settings
 
 
 def run(database):
@@ -81,7 +82,7 @@ def run(database):
                 current_count = initial_len - len(period_list)
 
                 logger.info(
-                    f'period_list_len - {current_count}/{initial_len - 1} '
+                    f'period - {current_count}/{initial_len - 1} '
                     f'| FROM: {from_datetime} | TO: {to_datetime}',
                 )
 
@@ -97,6 +98,8 @@ def run(database):
                         rows=len(records),
                     ),
                 )
+
+                logger.info(f'Processing {len(records)} rows......')
 
                 time_started = time()
                 # Loop through records and process them
@@ -366,6 +369,8 @@ def run(database):
 
                 database.pantasia_conn.commit()
 
+                logger.info(f'{len(records)} rows updated in database.')
+
                 time_difference = time() - start_time
                 count_difference = len(records)
                 proc_rate = count_difference / time_difference
@@ -392,11 +397,10 @@ if __name__ == '__main__':
     # Create logger
     logger = logging.getLogger('pantasia-db-sync')
 
-    # Read DB Config
-    db_config = read_yaml('../dbconfig.yaml')
+    logger.info(f'pantasia-db-sync ({settings.environment}) is starting...')
 
     # Initialize Db connections to Cardano DB and Pantasia DB
-    db = Db(db_config)
+    db = Db()
     killer = GracefulKiller(db)
     try:
         run(db)
