@@ -10,29 +10,27 @@ import bidict as bd
 import psycopg2
 from bidict import bidict
 from psycopg2.extras import RealDictCursor
-
+from settings import settings
 
 logger = logging.getLogger('pantasia-db-sync')
 
 
 class Db:
-    def __init__(self, config: dict) -> None:
-        self.config = config
-
+    def __init__(self) -> None:
         # Connect to Cardano and Pantasia postgres DB
         self.cardano_conn = psycopg2.connect(
-            dbname=config['cardano']['dbname'],
-            user=config['cardano']['user'],
-            password=config['cardano']['password'],
-            host=config['cardano']['host'],
-            port=config['cardano']['port'],
+            dbname=settings.cdb_name,
+            user=settings.cdb_user,
+            password=settings.cdb_pass,
+            host=settings.cdb_host,
+            port=settings.cdb_port,
         )
         self.pantasia_conn = psycopg2.connect(
-            dbname=config['pantasia']['dbname'],
-            user=config['pantasia']['user'],
-            password=config['pantasia']['password'],
-            host=config['pantasia']['host'],
-            port=config['pantasia']['port'],
+            dbname=settings.db_name,
+            user=settings.db_user,
+            password=settings.db_pass,
+            host=settings.db_host,
+            port=settings.db_port,
         )
 
         # Open cursors to perform database operations
@@ -355,7 +353,7 @@ class Db:
         new_tip = self.pantasia_tip
 
         while new_tip < self.cardano_tip:
-            new_tip = new_tip + timedelta(hours=self.config['time_interval'])
+            new_tip = new_tip + timedelta(minutes=settings.time_interval)
 
             if new_tip > self.cardano_tip:
                 new_tip = self.cardano_tip
