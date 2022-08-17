@@ -1,0 +1,12 @@
+version: '3.9'
+
+services:
+  pantasia-db-sync:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    image: pantasia-db-sync:${PANTASIA_DB_SYNC_VERSION:-latest}
+    restart: always
+    env_file:
+    - .env
+    network_mode: "host"
