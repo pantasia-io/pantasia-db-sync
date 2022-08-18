@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from db import Db
+from db.postgres import Db
 from settings import settings
 
 logger = logging.getLogger('pantasia-db-sync')

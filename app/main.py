@@ -10,8 +10,8 @@ from time import time
 from typing import Callable
 
 from cardano import get_staking_address
-from db import Db
-from id_index import IdIndex
+from db.id_index import IdIndex
+from db.postgres import Db
 from misc import hex_to_string
 from misc import read_yaml
 from psycopg2 import DataError
