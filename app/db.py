@@ -6,9 +6,7 @@ from datetime import timedelta
 from time import time
 from typing import Callable
 
-import bidict as bd
 import psycopg2
-from bidict import bidict
 from psycopg2.extras import RealDictCursor
 from settings import settings
 
@@ -18,12 +16,21 @@ logger = logging.getLogger('pantasia-db-sync')
 class Db:
     def __init__(self) -> None:
         # Connect to Cardano and Pantasia postgres DB
+        logger.debug(
+            f'Connecting to {settings.cdb_name} '
+            f'at {settings.cdb_host}:{settings.cdb_port}',
+        )
         self.cardano_conn = psycopg2.connect(
             dbname=settings.cdb_name,
             user=settings.cdb_user,
             password=settings.cdb_pass,
             host=settings.cdb_host,
             port=settings.cdb_port,
+        )
+        logger.debug('Connection successful')
+        logger.debug(
+            f'Connecting to {settings.db_name} '
+            f'at {settings.db_host}:{settings.db_port}',
         )
         self.pantasia_conn = psycopg2.connect(
             dbname=settings.db_name,
@@ -32,6 +39,7 @@ class Db:
             host=settings.db_host,
             port=settings.db_port,
         )
+        logger.debug('Connection successful')
 
         # Open cursors to perform database operations
         self.cardano_cur = self.cardano_conn.cursor(
@@ -50,10 +58,9 @@ class Db:
 
         # Get Pantasia DB tip in datetime
         self.pantasia_tip = self.get_latest_pantasia_tip()
-        self.old_pantasia_tip = None
 
     @staticmethod
-    def measure_time(func: Callable) -> Callable:
+    def _measure_time(func: Callable) -> Callable:
         def time_it(*args: any, **kwargs: any) -> None:
             time_started = time()
             func(*args, **kwargs)
@@ -75,8 +82,11 @@ class Db:
         return time_it
 
     def close_connections(self) -> None:
+        logger.info('Canceling pending transactions and closing connections......')
+        self.cardano_conn.cancel()
         self.cardano_cur.close()
         self.cardano_conn.close()
+        self.pantasia_conn.cancel()
         self.pantasia_cur.close()
         self.pantasia_conn.close()
         logger.info('Database connections have been closed.')
@@ -249,55 +259,6 @@ class Db:
         else:
             return result['id'] + 1
 
-    def pantasia_load_id_map(self, table_name: str, natural_key: str) -> bidict:
-        # Load a bidirectional map of primary key to/from natural key
-        bd_result = bd.bidict()
-
-        logger.info(f'Loading {table_name} data......')
-
-        self.pantasia_cur.execute(
-            f'SELECT id, {natural_key} FROM {table_name} ORDER BY id ASC',
-        )
-        self.pantasia_conn.commit()
-        results = self.pantasia_cur.fetchall()
-
-        for result in results:
-            bd_result.put(result['id'], result[natural_key], bd.ON_DUP_RAISE)
-
-        logger.info(
-            f'Load {table_name} data, '
-            f'reference natural key: {natural_key}, '
-            f'{len(results)} items found and loaded',
-        )
-        return bd_result
-
-    def pantasia_load_asset_ext_asset_id(self) -> dict:
-        # Load dictionary to map asset id to existence of
-        # corresponding asset_ext record
-        d_result = {}
-
-        logger.info('Loading asset_ext data...... ')
-
-        self.pantasia_cur.execute(
-            """SELECT a.id, ae.asset_id FROM asset a
-                LEFT JOIN asset_ext ae ON a.id = ae.asset_id
-                ORDER BY id ASC""",
-        )
-        self.pantasia_conn.commit()
-        results = self.pantasia_cur.fetchall()
-
-        for result in results:
-            if result['asset_id'] is not None:
-                d_result[result['id']] = True
-            else:
-                d_result[result['id']] = False
-
-        logger.info(
-            f'Loading asset_ext data, '
-            f'reference natural key: asset_id, {len(results)} items found and loaded',
-        )
-        return d_result
-
     def get_latest_cardano_tip(self) -> datetime:
         # Get latest block time
         self.cardano_cur.execute("""SELECT b.time AS cardano_tip
@@ -418,14 +379,15 @@ class Db:
                 FROM all_ma_tx amt
                 LEFT JOIN LATERAL
                 (SELECT true AS is_mint_tx,
-                      tm.json -> amt.policy_id -> amt.asset_name ->> 'image' AS image,
-                      tm.json -> amt.policy_id -> amt.asset_name AS metadata,
-                      tm.json -> amt.policy_id -> amt.asset_name -> 'files' AS files
+                    tm."key",
+                    tm.json -> amt.policy_id -> amt.asset_name ->> 'image' AS image,
+                    tm.json -> amt.policy_id -> amt.asset_name AS metadata,
+                    tm.json -> amt.policy_id -> amt.asset_name -> 'files' AS files
                 FROM ma_tx_mint mtm2
                 LEFT OUTER JOIN tx_metadata tm ON tm.tx_id = amt.tx_id
+                AND tm."key" = 721
                 WHERE (mtm2.ident = amt.ma_id
-                 AND mtm2.tx_id = amt.tx_id)
-                 AND (tm."key" IN (721) OR mtm2.quantity < 0)) label_mint_tx ON true
+                 AND mtm2.tx_id = amt.tx_id)) label_mint_tx ON true
                 JOIN tx t3 ON amt.tx_id = t3.id
                 JOIN block b3 ON t3.block_id = b3.id
                 ORDER BY b3.time asc
@@ -438,7 +400,7 @@ class Db:
         self.cardano_conn.commit()
         return self.cardano_cur.fetchall()
 
-    @measure_time
+    @_measure_time
     def pantasia_insert_wallet(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, '{b}', '{c}')" for (a, b, c) in values
@@ -447,7 +409,7 @@ class Db:
                     argument_string
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_insert_collection(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, '{b}')"
@@ -457,7 +419,7 @@ class Db:
                     argument_string
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_insert_asset_mint_tx(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, {b}, {c}, {d}, '{e}', TIMESTAMP '{f}', $${g}$$, {h}, {i})" for
@@ -470,7 +432,7 @@ class Db:
                     'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_insert_asset_tx(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, {b}, {c}, {d}, '{e}', TIMESTAMP '{f}')" for (a, b, c, d, e, f) in
@@ -482,7 +444,7 @@ class Db:
                     'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_insert_asset(self, values: list) -> None:
         argument_string = ','.join(
             f"({a}, {b}, '{c}', '{d}', '{e}', {f})" for (a, b, c, d, e, f)
@@ -494,7 +456,7 @@ class Db:
                     'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_insert_asset_ext(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b}, {c}, {d})' for (a, b, c, d)
@@ -505,7 +467,7 @@ class Db:
                     'VALUES' + argument_string
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_update_asset_ext_latest_mint_tx_id(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b})' for (a, b) in values
@@ -516,7 +478,7 @@ class Db:
         WHERE ae.asset_id = v.asset_id"""
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_update_asset_ext_latest_tx_id(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b})' for (a, b) in values
@@ -527,7 +489,7 @@ class Db:
         WHERE ae.asset_id = v.asset_id"""
         self.pantasia_cur.execute(query_str)
 
-    @measure_time
+    @_measure_time
     def pantasia_update_asset_current_wallet_id(self, values: list) -> None:
         argument_string = ','.join(
             f'({a}, {b})' for (a, b) in values

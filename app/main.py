@@ -7,9 +7,11 @@ from signal import signal
 from signal import SIGTERM
 from time import sleep
 from time import time
+from typing import Callable
 
 from cardano import get_staking_address
 from db import Db
+from id_index import IdIndex
 from misc import hex_to_string
 from misc import read_yaml
 from psycopg2 import DataError
@@ -21,19 +23,10 @@ from settings import settings
 
 def run(database):
     # Initialize and load data from Pantasia DB
-    bd_asset_id_x_fingerprint = database.pantasia_load_id_map(
-        'asset',
-        'fingerprint',
-    )
-    bd_wallet_id_x_address = database.pantasia_load_id_map(
-        'wallet',
-        'address',
-    )
-    bd_collection_id_x_policy_id = database.pantasia_load_id_map(
-        'collection',
-        'policy_id',
-    )
-    d_asset_id_x_asset_ext = database.pantasia_load_asset_ext_asset_id()
+    d_asset_id_x_fingerprint = IdIndex('asset', 'fingerprint', database)
+    d_wallet_id_x_address = IdIndex('wallet', 'address', database)
+    d_collection_id_x_policy_id = IdIndex('collection', 'policy_id', database)
+    d_asset_id_x_asset_ext = IdIndex('asset_ext', 'asset_id', database)
 
     # Get latest index (id) numbers for each table
     index_asset = database.pantasia_get_last_index('asset')
@@ -61,6 +54,14 @@ def run(database):
 
         while len(period_list) > 1:
             start_time = time()
+
+            if settings.in_memory_index is False:
+                # Clear index dictionaries
+                d_asset_id_x_fingerprint.clear_index()
+                d_wallet_id_x_address.clear_index()
+                d_collection_id_x_policy_id.clear_index()
+                d_asset_id_x_asset_ext.clear_index()
+
             # Init lists as containers for data values to be inserted to Pantasia DB
             values_insert_wallet = []
             values_insert_collection = []
@@ -113,7 +114,7 @@ def run(database):
 
                         if r_stake_address is None:
                             # Get index of payment address if already existing in bidict
-                            address_index = bd_wallet_id_x_address.inverse.get(
+                            address_index = d_wallet_id_x_address.get(
                                 r_address,
                             )
 
@@ -123,7 +124,7 @@ def run(database):
                                 # update bidict and add to values
                                 # to insert new row in wallet table
                                 address_index = index_wallet
-                                bd_wallet_id_x_address.put(
+                                d_wallet_id_x_address.set(
                                     address_index, r_address,
                                 )
                                 r_address_type = 'ENTERPRISE'
@@ -136,7 +137,7 @@ def run(database):
 
                         else:
                             # Get index of stake address if already existing in bidict
-                            address_index = bd_wallet_id_x_address.inverse.get(
+                            address_index = d_wallet_id_x_address.get(
                                 r_stake_address,
                             )
 
@@ -146,7 +147,7 @@ def run(database):
                                 # update bidict and add to values
                                 # to insert new row in wallet table
                                 address_index = index_wallet
-                                bd_wallet_id_x_address.put(
+                                d_wallet_id_x_address.set(
                                     address_index, r_stake_address,
                                 )
                                 r_address_type = 'STAKE'
@@ -165,7 +166,7 @@ def run(database):
                     r_policy_id = record['policy_id']
 
                     # Get index of policy id if already existing in bidict
-                    policy_index = bd_collection_id_x_policy_id.inverse.get(
+                    policy_index = d_collection_id_x_policy_id.get(
                         r_policy_id,
                     )
 
@@ -175,7 +176,7 @@ def run(database):
                         # update bidict and add to values
                         # to insert new row in collection table
                         policy_index = index_collection
-                        bd_collection_id_x_policy_id.put(
+                        d_collection_id_x_policy_id.set(
                             policy_index, r_policy_id,
                         )
                         values_insert_collection.append(
@@ -188,7 +189,7 @@ def run(database):
                     # Process asset, asset_mint_tx and asset_tx
                     is_mint_tx = record['is_mint_tx']
                     # Get index of asset if already existing in bidict
-                    asset_fingerprint_index = bd_asset_id_x_fingerprint.inverse.get(
+                    asset_fingerprint_index = d_asset_id_x_fingerprint.get(
                         record['asset_fingerprint'],
                     )
 
@@ -203,7 +204,7 @@ def run(database):
                             # update bidict and add to values
                             # to insert new row in asset table
                             asset_fingerprint_index = index_asset
-                            bd_asset_id_x_fingerprint.put(
+                            d_asset_id_x_fingerprint.set(
                                 asset_fingerprint_index,
                                 record['asset_fingerprint'],
                             )
@@ -216,7 +217,6 @@ def run(database):
                                 record['asset_fingerprint'],
                                 address_index,
                             ))
-                            d_asset_id_x_asset_ext[asset_fingerprint_index] = False
 
                             # Increment index number for next record
                             index_asset = index_asset + 1
@@ -224,7 +224,9 @@ def run(database):
                         # Update latest_mint_tx_id in asset
                         # if it is a mint tx, except burn tx
                         if record['quantity'] > 0:
-                            if d_asset_id_x_asset_ext[asset_fingerprint_index] is True:
+                            if d_asset_id_x_asset_ext.get(
+                                    asset_fingerprint_index,
+                            ) is not None:
                                 # Update asset entry with latest_mint_tx_id
                                 values_update_asset_ext_latest_mint_tx_id.append(
                                     (asset_fingerprint_index, asset_mint_tx_index),
@@ -239,7 +241,9 @@ def run(database):
                                         'Null',
                                     ),
                                 )
-                                d_asset_id_x_asset_ext[asset_fingerprint_index] = True
+                                d_asset_id_x_asset_ext.set(
+                                    asset_fingerprint_index, asset_fingerprint_index,
+                                )
 
                         # Add to values to insert new row in asset_mint_tx table
                         values_insert_asset_mint_tx.append(
@@ -269,7 +273,7 @@ def run(database):
                             # Assign new index number, update bidict
                             # and add to values to insert new row in asset table
                             asset_fingerprint_index = index_asset
-                            bd_asset_id_x_fingerprint.put(
+                            d_asset_id_x_fingerprint.set(
                                 asset_fingerprint_index, record['asset_fingerprint'],
                             )
                             values_insert_asset.append((
@@ -278,7 +282,6 @@ def run(database):
                                 hex_to_string(str(record['asset_name_hash'])),
                                 record['asset_fingerprint'], address_index,
                             ))
-                            d_asset_id_x_asset_ext[asset_fingerprint_index] = False
 
                             # Increment index number for next record
                             index_asset = index_asset + 1
@@ -288,7 +291,9 @@ def run(database):
                                 (asset_fingerprint_index, address_index),
                             )
 
-                        if d_asset_id_x_asset_ext[asset_fingerprint_index] is True:
+                        if d_asset_id_x_asset_ext.get(
+                                asset_fingerprint_index,
+                        ) is not None:
                             # Update asset entry with latest_tx_id
                             values_update_asset_ext_latest_tx_id.append(
                                 (asset_fingerprint_index, asset_tx_index),
@@ -303,7 +308,9 @@ def run(database):
                                     asset_tx_index,
                                 ),
                             )
-                            d_asset_id_x_asset_ext[asset_fingerprint_index] = True
+                            d_asset_id_x_asset_ext.set(
+                                asset_fingerprint_index, asset_fingerprint_index,
+                            )
 
                         # Add to values to insert new row in asset_tx table
                         values_insert_asset_tx.append(
@@ -380,13 +387,13 @@ def run(database):
 
 
 class GracefulKiller:
-    def __init__(self, db: Db):
-        self.db = db
+    def __init__(self, func: Callable):
+        self.func = func
         signal(SIGINT, self.exit_gracefully)
         signal(SIGTERM, self.exit_gracefully)
 
     def exit_gracefully(self, *args):
-        self.db.close_connections()
+        self.func()
         quit()
 
 
@@ -401,7 +408,8 @@ if __name__ == '__main__':
 
     # Initialize Db connections to Cardano DB and Pantasia DB
     db = Db()
-    killer = GracefulKiller(db)
+
+    killer = GracefulKiller(db.close_connections)
     try:
         run(db)
     except (IntegrityError, DataError, InternalError, TypeError, MemoryError, OSError):
