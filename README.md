@@ -19,7 +19,7 @@ Run these commands to build and run the app in a docker container
 
 ```
 docker build --tag pantasia-db-sync .\
-docker run --net="host" -d --name pantasia-db-sync pantasia-db-sync:latest
+docker run --env-file .env --net="host" -d --name pantasia-db-sync pantasia-db-sync:latest
 ```
 
 # Docker-Compose
@@ -27,5 +27,5 @@ docker run --net="host" -d --name pantasia-db-sync pantasia-db-sync:latest
 You can also use docker-compose to build and start the docker container with the following command
 
 ```
-docker-compose up --build -d
+docker-compose --env-file .env -f docker-compose.yml up --build -d
 ```
