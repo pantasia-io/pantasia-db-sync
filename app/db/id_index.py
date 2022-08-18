@@ -56,14 +56,8 @@ class IdIndex:
         # Get ID from index, returns None if not found
         index_id = self.id_index.get(reference_value)
 
-        # If In-Memory Index is turned on, return the ID or None
-        if self.config is True:
-            return index_id
-        # If In-Memory Index is turned off, return the ID from index if found
-        elif self.config is False and index_id is not None:
-            return index_id
-        # If In-Memory Index is turned off, and ID not found, try to get from DB
-        elif self.config is False and index_id is None:
+        # If full in-memory index is turned off, and ID not found, try to get from DB
+        if self.config is False and index_id is None:
             if type(reference_value) is str:
                 reference_value = f"'{reference_value}'"
             self.db.pantasia_cur.execute(
@@ -76,6 +70,8 @@ class IdIndex:
                 return result['id']
             else:
                 return None
+        else:
+            return index_id
 
     def set(self, index_id: int, reference_value: any) -> None:
         # Set the ID mapped to reference key value in the index
