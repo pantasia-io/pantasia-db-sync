@@ -6,6 +6,8 @@ from pydantic import BaseSettings
 class Settings(BaseSettings):
     """Application settings with default values"""
     time_interval: int = 120
+    in_memory_index: bool = True
+
     # Pantasia DB
     environment: str = 'dev'
     db_host: str = 'localhost'
