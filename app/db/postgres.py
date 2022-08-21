@@ -264,13 +264,14 @@ class Db:
         self.cardano_cur.execute("""SELECT b.time AS cardano_tip
             FROM block b
             ORDER BY b.time DESC
-            LIMIT 1""")
+            LIMIT 1
+            OFFSET 3""")
         self.pantasia_conn.commit()
 
         # cardano_tip delayed 2 minutes as a buffer
         # to allow cardano_db_sync to complete insertions
         cardano_tip = self.cardano_cur.fetchone(
-        )['cardano_tip'] - timedelta(minutes=2)
+        )['cardano_tip']
         logger.info(f'Cardano DB Tip is at {cardano_tip}')
 
         self.cardano_tip = cardano_tip
