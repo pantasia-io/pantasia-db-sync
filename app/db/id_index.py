@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 
 from db.postgres import Db
-from settings import settings
 
 logger = logging.getLogger('pantasia-db-sync')
 
@@ -12,7 +11,7 @@ logger = logging.getLogger('pantasia-db-sync')
 class IdIndex:
     def __init__(self, table_name: str, reference_key: str, database: Db) -> None:
         # Get config to determine whether to use full in_memory_index
-        self.config = settings.in_memory_index
+        self.config = database.config.in_memory_index
         self.table_name = table_name
         self.reference_key = reference_key
         self.db = database

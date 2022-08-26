@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     """Application settings with default values"""
     time_interval: int = 120
     in_memory_index: bool = True
+    log_level: str = 'INFO'
 
     # Pantasia DB
     environment: str = 'dev'
