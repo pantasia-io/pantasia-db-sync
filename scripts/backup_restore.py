@@ -11,8 +11,6 @@ import subprocess
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
-from app.settings import settings
-
 
 def list_available_backups(manager_config):
     key_list = []
@@ -21,8 +19,8 @@ def list_available_backups(manager_config):
         backup_list = os.listdir(backup_folder)
     except FileNotFoundError:
         print(
-            f'Could not found {backup_folder} when searching for backups. '
-            f'Check your settings',
+            f'Could not find {backup_folder} when searching for backups. '
+            f'Check your settings and/or ensure the folder exists',
         )
         exit(1)
 
@@ -252,19 +250,20 @@ def main():
         help='Verbose output',
     )
     args = args_parser.parse_args()
+    prefix = 'PANTASIA_'
 
-    postgres_host = settings.db_host
-    postgres_port = settings.db_port
-    postgres_db = settings.db_name
+    postgres_host = os.environ.get(f'{prefix}DB_HOST')
+    postgres_port = os.environ.get(f'{prefix}DB_PORT')
+    postgres_db = os.environ.get(f'{prefix}DB_NAME')
     postgres_restore = f'{postgres_db}_restore'
-    postgres_user = settings.db_user
-    postgres_password = settings.db_pass
+    postgres_user = os.environ.get(f'{prefix}DB_USER')
+    postgres_password = os.environ.get(f'{prefix}DB_PASS')
     timestr = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     filename = f'pantasia-db-{timestr}-{postgres_db}.dump'
     filename_compressed = f'{filename}.gz'
     restore_filename = 'tmp/restore.dump.gz'
     restore_uncompressed = './tmp/restore.dump'
-    local_storage_path = settings.db_backup_path
+    local_storage_path = os.environ.get(f'{prefix}DB_BACKUP_PATH')
 
     manager_config = {
         'BACKUP_PATH': f'{os.getcwd()}/tmp/',

@@ -1,6 +1,7 @@
-*.pyc
 Dockerfile
 .dockerignore
 .git
 __pycache__
 venv
+**/*.gz
+**/tmp

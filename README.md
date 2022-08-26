@@ -40,17 +40,17 @@ PANTASIA_DB_HOST=localhost
 PANTASIA_DB_PORT=5432
 PANTASIA_DB_USER=<username>
 PANTASIA_DB_PASS=<password>
-PANTASIA_DB_BASE=pantasia
+PANTASIA_DB_NAME=pantasia
 PANTASIA_DB_BACKUP_PATH=./backups/
 ```
 
 Create a snapshot of the database:
 ```
-python -m backup_restore --action backup --verbose true
+python backup_restore.py --action backup --verbose true
 ```
 
 Restore from a previous snapshot of the database:
 ```
-python -m backup_restore --action restore --verbose true
+python backup_restore.py --action restore --verbose true
 ```
 This will search for snapshots/backup files in the backup path, and you will need to select which file you'd like to restore.
