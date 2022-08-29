@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     db_name: str = 'pantasia'
     db_echo: bool = False
 
+    # Backup Config
+    db_backup_path: str = './backups/'
+
     # Cardano DB
     cdb_host: str = 'localhost'
     cdb_port: int = 5433

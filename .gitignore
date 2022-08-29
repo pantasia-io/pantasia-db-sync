@@ -130,3 +130,7 @@ dmypy.json
 
 # IDEA Project folder
 .idea
+
+# Backup Files and Directories
+**/*.gz
+**/tmp
