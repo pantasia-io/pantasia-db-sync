@@ -8,36 +8,36 @@ from typing import Callable
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from settings import settings
 
 logger = logging.getLogger('pantasia-db-sync')
 
 
 class Db:
-    def __init__(self) -> None:
+    def __init__(self, config) -> None:
+        self.config = config
         # Connect to Cardano and Pantasia postgres DB
         logger.debug(
-            f'Connecting to {settings.cdb_name} '
-            f'at {settings.cdb_host}:{settings.cdb_port}',
+            f'Connecting to {config.cdb_name} '
+            f'at {config.cdb_host}:{config.cdb_port}',
         )
         self.cardano_conn = psycopg2.connect(
-            dbname=settings.cdb_name,
-            user=settings.cdb_user,
-            password=settings.cdb_pass,
-            host=settings.cdb_host,
-            port=settings.cdb_port,
+            dbname=config.cdb_name,
+            user=config.cdb_user,
+            password=config.cdb_pass,
+            host=config.cdb_host,
+            port=config.cdb_port,
         )
         logger.debug('Connection successful')
         logger.debug(
-            f'Connecting to {settings.db_name} '
-            f'at {settings.db_host}:{settings.db_port}',
+            f'Connecting to {config.db_name} '
+            f'at {config.db_host}:{config.db_port}',
         )
         self.pantasia_conn = psycopg2.connect(
-            dbname=settings.db_name,
-            user=settings.db_user,
-            password=settings.db_pass,
-            host=settings.db_host,
-            port=settings.db_port,
+            dbname=config.db_name,
+            user=config.db_user,
+            password=config.db_pass,
+            host=config.db_host,
+            port=config.db_port,
         )
         logger.debug('Connection successful')
 
@@ -315,7 +315,7 @@ class Db:
         new_tip = self.pantasia_tip
 
         while new_tip < self.cardano_tip:
-            new_tip = new_tip + timedelta(minutes=settings.time_interval)
+            new_tip = new_tip + timedelta(minutes=self.config.time_interval)
 
             if new_tip > self.cardano_tip:
                 new_tip = self.cardano_tip

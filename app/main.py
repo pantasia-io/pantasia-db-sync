@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging.config
+import os
 import traceback
+from pathlib import PurePath
 from signal import SIGINT
 from signal import signal
 from signal import SIGTERM
@@ -10,8 +12,8 @@ from time import time
 from typing import Callable
 
 from cardano import get_staking_address
-from db.id_index import IdIndex
-from db.postgres import Db
+from db import Db
+from db import IdIndex
 from misc import hex_to_string
 from misc import read_yaml
 from psycopg2 import DataError
@@ -398,8 +400,14 @@ class GracefulKiller:
 
 
 if __name__ == '__main__':
+    # Get absolute path of this file
+    current_dir = PurePath(__file__).parent.parent
+    log_config_path = os.path.join(current_dir, 'logging.yaml')
+
     # Read logging config
-    logging.config.dictConfig(read_yaml('../logging.yaml'))
+    log_config = read_yaml(log_config_path)
+    log_config['loggers']['pantasia-db-sync']['level'] = settings.log_level
+    logging.config.dictConfig(log_config)
 
     # Create logger
     logger = logging.getLogger('pantasia-db-sync')
@@ -407,7 +415,7 @@ if __name__ == '__main__':
     logger.info(f'pantasia-db-sync ({settings.environment}) is starting...')
 
     # Initialize Db connections to Cardano DB and Pantasia DB
-    db = Db()
+    db = Db(settings)
 
     killer = GracefulKiller(db.close_connections)
     try:
